@@ -1,11 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EduWallet | School Payments</title>
-
   <style>
     * {
       box-sizing: border-box;
@@ -167,9 +165,7 @@
 <body>
   <section class="left-panel">
     <div class="brand">EduWallet</div>
-
     <h1>Smart payments.<br>Safer school days.</h1>
-
     <p>
       A cashless school payment system that helps parents
       manage their child's spending and makes canteen
@@ -180,7 +176,6 @@
   <main class="right-panel">
     <form class="login-card" id="loginForm">
       <h2>Welcome back</h2>
-
       <p class="subtitle">
         Sign in to access your EduWallet account.
       </p>
@@ -213,8 +208,7 @@
       </select>
 
       <button type="submit" id="loginButton">Sign In</button>
-
-      <p id="message" role="status"></p>
+      <p id="message" role="status" aria-live="polite"></p>
 
       <div class="footer">
         EduWallet · School Cashless Payment System
@@ -226,6 +220,13 @@
     const form = document.getElementById("loginForm");
     const message = document.getElementById("message");
     const button = document.getElementById("loginButton");
+
+    const pages = {
+      Admin: "admin-dashboard.html",
+      Parent: "wallet.html",
+      Student: "student-dashboard.html",
+      Canteen: "canteen-dashboard.html"
+    };
 
     form.addEventListener("submit", async function (event) {
       event.preventDefault();
@@ -240,7 +241,7 @@
 
       try {
         const response = await fetch(
-          "http://localhost:5000/api/login",
+          "https://eduwallet-c8hd.onrender.com/api/login",
           {
             method: "POST",
             headers: {
@@ -256,31 +257,37 @@
           throw new Error(data.message || "Login failed.");
         }
 
+        if (!data.user || !data.user.role) {
+          throw new Error("Account information is missing from the login response.");
+        }
+
         if (data.user.role !== selectedRole) {
           throw new Error(
             "Please select the correct account type for this username."
           );
         }
 
+        const destination = pages[data.user.role];
+
+        if (!destination) {
+          throw new Error("No dashboard is configured for this account.");
+        }
+
+        sessionStorage.setItem("token", data.token);
+        sessionStorage.setItem("user", JSON.stringify(data.user));
         sessionStorage.setItem("eduwalletToken", data.token);
-        sessionStorage.setItem(
-          "eduwalletUser",
-          JSON.stringify(data.user)
-        );
+        sessionStorage.setItem("eduwalletUser", JSON.stringify(data.user));
 
         message.style.color = "#18794e";
-        message.textContent = "Login successful! Welcome, " + data.user.name + ".";
+        message.textContent = "Login successful! Opening your dashboard...";
 
-        // Dashboards will be connected in the next step.
+        window.location.assign(destination);
+
       } catch (error) {
+        console.error("EduWallet login error:", error);
         message.style.color = "#c62828";
-
-        if (error instanceof TypeError) {
-          message.textContent =
-            "Cannot connect to the backend. Make sure the server is running.";
-        } else {
-          message.textContent = error.message;
-        }
+        message.textContent = error.message ||
+          "Unable to connect. Please try again.";
       } finally {
         button.disabled = false;
         button.textContent = "Sign In";
