@@ -1,0 +1,288 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Canteen Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Canteen</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Canteen Dashboard</h1>
+    <p>Process student purchases and review estimated food demand.</p>
+    <p id="message" role="status"></p>
+
+    <section class="card">
+      <h2>RFID Payment</h2>
+
+      <form id="paymentForm">
+        <div class="form-group">
+          <label for="rfidCardId">RFID Card ID</label>
+          <input id="rfidCardId" type="text"
+                 placeholder="Scan or enter card ID"
+                 autocomplete="off" required>
+        </div>
+
+        <div class="form-group">
+          <label for="amount">Purchase amount (₹)</label>
+          <input id="amount" type="number" min="0.01"
+                 max="100000" step="0.01"
+                 placeholder="Enter amount" required>
+        </div>
+
+        <div class="form-group">
+          <label for="description">Purchase description</label>
+          <input id="description" type="text" maxlength="120"
+                 placeholder="e.g. Lunch">
+        </div>
+
+        <button id="payBtn" type="submit">Process Payment</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Payment Result</h2>
+      <p id="resultStudent">Student: —</p>
+      <p id="resultAmount">Amount paid: —</p>
+      <h3 id="resultBalance">Remaining balance: —</h3>
+    </section>
+
+    <section class="card">
+      <h2>AI Canteen Demand Prediction</h2>
+      <p>
+        Estimated demand based on successful RFID purchases
+        recorded during the last seven days.
+      </p>
+
+      <button id="refreshDemandBtn" type="button">
+        Refresh Predictions
+      </button>
+
+      <p id="demandMessage" role="status">
+        Loading demand predictions...
+      </p>
+
+      <div id="demandResults"></div>
+      <p id="demandNote">
+        Estimates use recent purchase counts and may be limited
+        when little historical data is available.
+      </p>
+    </section>
+
+    <p>
+      <a href="transactions.html">Transaction History</a>
+      &nbsp; | &nbsp;
+      <a href="notifications.html">Notifications</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const form = document.getElementById("paymentForm");
+    const payBtn = document.getElementById("payBtn");
+    const message = document.getElementById("message");
+    const rfidInput = document.getElementById("rfidCardId");
+    const demandMessage = document.getElementById("demandMessage");
+    const demandResults = document.getElementById("demandResults");
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    function money(value) {
+      return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    });
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else if (user.role !== "Canteen") {
+      document.body.innerHTML =
+        "<main class='container'><h2>Access denied</h2>" +
+        "<p>This page is for canteen accounts only.</p>" +
+        "<a href='login.html'>Return to login</a></main>";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || "Canteen";
+    }
+
+    // Process RFID payment
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (!token || user.role !== "Canteen") {
+        showMessage("Please sign in with a canteen account.", true);
+        return;
+      }
+
+      const rfidCardId = document.getElementById("rfidCardId").value.trim();
+      const amount = Number(document.getElementById("amount").value);
+      const description =
+        document.getElementById("description").value.trim() ||
+        "Canteen purchase";
+
+      if (!rfidCardId) {
+        showMessage("Enter or scan an RFID card ID.", true);
+        return;
+      }
+
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) {
+        showMessage("Enter a valid purchase amount.", true);
+        return;
+      }
+
+      payBtn.disabled = true;
+      payBtn.textContent = "Processing...";
+      showMessage("Processing payment...");
+
+      try {
+        const response = await fetch(API + "/payments/rfid", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + token
+          },
+          body: JSON.stringify({ rfidCardId, amount, description })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(data.message || "Payment could not be completed.");
+        }
+
+        const payment = data.payment || {};
+
+        document.getElementById("resultStudent").textContent =
+          "Student: " + (payment.studentName || payment.studentId || "—");
+
+        document.getElementById("resultAmount").textContent =
+          "Amount paid: " + money(payment.amount);
+
+        document.getElementById("resultBalance").textContent =
+          "Remaining balance: " + money(payment.balance);
+
+        showMessage(data.message || "Payment successful.");
+        form.reset();
+        rfidInput.focus();
+
+        // Update predictions after a successful purchase
+        loadDemandPredictions();
+      } catch (error) {
+        showMessage(error.message, true);
+      } finally {
+        payBtn.disabled = false;
+        payBtn.textContent = "Process Payment";
+      }
+    });
+
+    // Load demand predictions from the backend
+    async function loadDemandPredictions() {
+      demandMessage.textContent = "Loading predictions...";
+      demandResults.replaceChildren();
+
+      try {
+        const response = await fetch(API + "/demand/prediction", {
+          headers: {
+            "Authorization": "Bearer " + token
+          }
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(data.message || "Could not load predictions.");
+        }
+
+        if (!data.predictions || data.predictions.length === 0) {
+          demandMessage.textContent =
+            data.message || "No successful RFID purchases found yet.";
+          return;
+        }
+
+        demandMessage.textContent =
+          "Based on " + data.totalPurchases +
+          " successful RFID purchase(s) in the recorded history.";
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+
+        ["Food item", "All-time orders", "Last 7 days",
+         "Estimated next week", "Demand"].forEach((label) => {
+          const th = document.createElement("th");
+          th.textContent = label;
+          headerRow.appendChild(th);
+        });
+
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+
+        data.predictions.forEach((item) => {
+          const row = document.createElement("tr");
+
+          const values = [
+            item.item,
+            item.totalOrders,
+            item.recentOrders,
+            item.estimatedNextWeek,
+            item.demandLevel
+          ];
+
+          values.forEach((value) => {
+            const cell = document.createElement("td");
+            cell.textContent = String(value ?? "—");
+            row.appendChild(cell);
+          });
+
+          tbody.appendChild(row);
+        });
+
+        table.appendChild(tbody);
+        demandResults.appendChild(table);
+      } catch (error) {
+        demandMessage.textContent = error.message;
+      }
+    }
+
+    document.getElementById("refreshDemandBtn").addEventListener(
+      "click",
+      loadDemandPredictions
+    );
+
+    // Load predictions when the dashboard opens
+    if (token && user.role === "Canteen") {
+      loadDemandPredictions();
+    }
+  </script>
+</body>
+</html>

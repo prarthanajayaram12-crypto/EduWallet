@@ -1,0 +1,95 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Profile</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">My Profile</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>My Profile</h1>
+    <p id="message" role="status"></p>
+
+    <section class="card">
+      <h2>Account Details</h2>
+
+      <p>Name: <strong id="name">—</strong></p>
+      <p>Username: <strong id="username">—</strong></p>
+      <p>Role: <strong id="role">—</strong></p>
+      <p>Student ID: <strong id="studentId">Not linked</strong></p>
+
+      <p class="muted">
+        To change account details or link a student account, contact the administrator.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Quick Links</h2>
+      <p><a id="dashboardLink" href="index.html">Dashboard</a></p>
+      <p><a href="wallet.html">My Wallet</a></p>
+      <p><a href="transactions.html">Transactions</a></p>
+      <p><a href="notifications.html">Notifications</a></p>
+      <p><a href="settings.html">Settings</a></p>
+    </section>
+  </main>
+
+  <script>
+    let user = {};
+
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const token = sessionStorage.getItem("token");
+    const message = document.getElementById("message");
+
+    function logout() {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("logoutBtn")
+      .addEventListener("click", logout);
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || "My Profile";
+
+      document.getElementById("name").textContent =
+        user.name || "Not available";
+
+      document.getElementById("username").textContent =
+        user.username || "Not available";
+
+      document.getElementById("role").textContent =
+        user.role || "Not available";
+
+      document.getElementById("studentId").textContent =
+        user.studentId || "Not linked";
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        user.role === "Canteen" ? "canteen-dashboard.html" :
+        "wallet.html";
+
+      message.textContent = "Profile loaded successfully.";
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,246 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Spending Limits</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Spending Limits</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Spending Limits</h1>
+    <p>Set daily and weekly spending limits for a student's wallet.</p>
+    <p id="message" role="status"></p>
+
+    <section class="card">
+      <form id="limitsForm">
+        <div class="form-group">
+          <label for="studentId">Student ID</label>
+          <input id="studentId" type="text"
+                 placeholder="Enter student ID" required>
+        </div>
+
+        <button id="loadBtn" type="button">Load Current Limits</button>
+
+        <div class="form-group">
+          <label for="dailyLimit">Daily limit (₹)</label>
+          <input id="dailyLimit" type="number" min="0" step="0.01"
+                 placeholder="Enter daily limit" required>
+        </div>
+
+        <div class="form-group">
+          <label for="weeklyLimit">Weekly limit (₹)</label>
+          <input id="weeklyLimit" type="number" min="0" step="0.01"
+                 placeholder="Enter weekly limit" required>
+        </div>
+
+        <button id="saveBtn" type="submit">Save Limits</button>
+      </form>
+    </section>
+
+    <p>
+      <a id="dashboardLink" href="index.html">Dashboard</a>
+      &nbsp; | &nbsp;
+      <a href="wallet.html">Wallet</a>
+      &nbsp; | &nbsp;
+      <a href="transactions.html">Transactions</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const studentIdInput = document.getElementById("studentId");
+    const dailyInput = document.getElementById("dailyLimit");
+    const weeklyInput = document.getElementById("weeklyLimit");
+    const loadBtn = document.getElementById("loadBtn");
+    const saveBtn = document.getElementById("saveBtn");
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    function logout() {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("logoutBtn")
+      .addEventListener("click", logout);
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || user.role;
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        "wallet.html";
+
+      if (user.role === "Admin") {
+        studentIdInput.readOnly = false;
+      } else if (user.role === "Parent" && user.studentId) {
+        studentIdInput.value = user.studentId;
+        studentIdInput.readOnly = true;
+      } else {
+        studentIdInput.readOnly = true;
+        studentIdInput.value = user.studentId || "";
+
+        if (user.role !== "Parent") {
+          showMessage(
+            "Only Admin and Parent accounts can change spending limits.",
+            true
+          );
+          saveBtn.disabled = true;
+        } else {
+          showMessage(
+            "Your account is not linked to a student. Contact the administrator.",
+            true
+          );
+          saveBtn.disabled = true;
+        }
+      }
+
+      if (user.role !== "Admin" && user.role !== "Parent") {
+        loadBtn.disabled = true;
+      } else if (user.studentId || user.role === "Admin") {
+        if (user.studentId) {
+          loadLimits(user.studentId);
+        }
+      }
+    }
+
+    async function apiRequest(path, options = {}) {
+      const response = await fetch(API + path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token,
+          ...(options.headers || {})
+        }
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.message || "Request failed.");
+      }
+
+      return data;
+    }
+
+    async function loadLimits(id) {
+      const studentId = String(id || "").trim();
+
+      if (!studentId) {
+        showMessage("Enter a Student ID first.", true);
+        return;
+      }
+
+      loadBtn.disabled = true;
+      showMessage("Loading current limits…");
+
+      try {
+        const data = await apiRequest(
+          "/wallet/" + encodeURIComponent(studentId)
+        );
+
+        const wallet = data.wallet || data;
+
+        dailyInput.value = wallet.dailyLimit ?? "";
+        weeklyInput.value = wallet.weeklyLimit ?? "";
+        studentIdInput.value = wallet.studentId || studentId;
+
+        showMessage("Current limits loaded.");
+      } catch (error) {
+        dailyInput.value = "";
+        weeklyInput.value = "";
+        showMessage(error.message, true);
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    loadBtn.addEventListener("click", () => {
+      loadLimits(studentIdInput.value);
+    });
+
+    document.getElementById("limitsForm")
+      .addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        if (!["Admin", "Parent"].includes(user.role)) {
+          showMessage("You cannot change spending limits.", true);
+          return;
+        }
+
+        const studentId = studentIdInput.value.trim();
+        const dailyLimit = Number(dailyInput.value);
+        const weeklyLimit = Number(weeklyInput.value);
+
+        if (!studentId) {
+          showMessage("Enter a Student ID.", true);
+          return;
+        }
+
+        if (
+          dailyInput.value.trim() === "" ||
+          weeklyInput.value.trim() === "" ||
+          !Number.isFinite(dailyLimit) ||
+          !Number.isFinite(weeklyLimit) ||
+          dailyLimit < 0 ||
+          weeklyLimit < 0
+        ) {
+          showMessage(
+            "Enter valid daily and weekly limits of zero or more.",
+            true
+          );
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving…";
+
+        try {
+          const data = await apiRequest("/wallet/limits", {
+            method: "PATCH",
+            body: JSON.stringify({
+              studentId,
+              dailyLimit,
+              weeklyLimit
+            })
+          });
+
+          showMessage(data.message || "Spending limits saved.");
+        } catch (error) {
+          showMessage(error.message, true);
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save Limits";
+        }
+      });
+  </script>
+</body>
+</html>

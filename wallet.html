@@ -1,0 +1,372 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Wallet</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Wallet</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>My Wallet</h1>
+    <p id="message" role="status"></p>
+
+    <section class="card">
+      <label for="studentId">Student ID</label>
+      <div class="form-group">
+        <input id="studentId" type="text" placeholder="Enter student ID">
+        <button id="loadWalletBtn" type="button">Load Wallet</button>
+      </div>
+
+      <h3 id="studentName">Student wallet</h3>
+      <p>Available balance</p>
+      <h1 id="balance">₹—</h1>
+
+      <p>Daily limit: <strong id="dailyLimit">—</strong></p>
+      <p>Weekly limit: <strong id="weeklyLimit">—</strong></p>
+    </section>
+
+    <section class="card" id="topupSection">
+      <h2>Add Money</h2>
+
+      <form id="topupForm">
+        <div class="form-group">
+          <label for="amount">Amount (₹)</label>
+          <input id="amount" type="number" min="1" max="50000"
+                 step="0.01" placeholder="Enter amount" required>
+        </div>
+
+        <div class="form-group">
+          <label for="paymentMethod">Payment method</label>
+          <select id="paymentMethod" required>
+            <option value="Online">Online (Razorpay Test Mode)</option>
+            <option value="Cash">Cash</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <button id="topupBtn" type="submit">Add Money</button>
+      </form>
+
+      <p class="muted" id="paymentNote">
+        Online payments use Razorpay Test Mode. No real money should be used.
+      </p>
+    </section>
+
+    <p>
+      <a id="dashboardLink" href="index.html">Back to Dashboard</a>
+      &nbsp; | &nbsp;
+      <a href="transactions.html">Transactions</a>
+      &nbsp; | &nbsp;
+      <a href="spending-limits.html">Spending Limits</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const studentIdInput = document.getElementById("studentId");
+    const loadWalletBtn = document.getElementById("loadWalletBtn");
+    const topupForm = document.getElementById("topupForm");
+    const topupBtn = document.getElementById("topupBtn");
+    const topupSection = document.getElementById("topupSection");
+    const paymentMethodInput = document.getElementById("paymentMethod");
+    const paymentNote = document.getElementById("paymentNote");
+
+    let paymentInProgress = false;
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    function money(value) {
+      return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function logout() {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", logout);
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else if (!["Admin", "Parent", "Student"].includes(user.role)) {
+      document.body.innerHTML =
+        "<main class='container'><h2>Access denied</h2>" +
+        "<p>This account cannot access the wallet page.</p>" +
+        "<a href='login.html'>Return to login</a></main>";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || user.role;
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        "wallet.html";
+
+      if (user.role === "Student") {
+        topupSection.hidden = true;
+      }
+
+      if (user.role !== "Admin") {
+        studentIdInput.value = user.studentId || "";
+        studentIdInput.readOnly = true;
+        loadWalletBtn.hidden = true;
+
+        if (!user.studentId) {
+          showMessage(
+            "Your account is not linked to a student record. Ask the administrator to link it.",
+            true
+          );
+        } else {
+          loadWallet(user.studentId);
+        }
+      }
+    }
+
+    paymentMethodInput.addEventListener("change", () => {
+      paymentNote.textContent =
+        paymentMethodInput.value === "Online"
+          ? "Razorpay Test Mode is used. Do not use real money."
+          : "Cash and Other are recorded directly by the system.";
+    });
+
+    async function apiRequest(path, options = {}) {
+      const response = await fetch(API + path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token,
+          ...(options.headers || {})
+        }
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.message || "Request failed. Please try again.");
+      }
+
+      return data;
+    }
+
+    async function loadWallet(id) {
+      const studentId = String(id || "").trim();
+
+      if (!studentId) {
+        showMessage("Enter a Student ID first.", true);
+        return;
+      }
+
+      showMessage("Loading wallet…");
+
+      try {
+        const data = await apiRequest(
+          "/wallet/" + encodeURIComponent(studentId)
+        );
+
+        const wallet = data.wallet || data;
+
+        document.getElementById("studentName").textContent =
+          wallet.studentName || wallet.name || "Student wallet";
+
+        document.getElementById("balance").textContent =
+          money(wallet.balance ?? wallet.walletBalance);
+
+        document.getElementById("dailyLimit").textContent =
+          money(wallet.dailyLimit);
+
+        document.getElementById("weeklyLimit").textContent =
+          money(wallet.weeklyLimit);
+
+        studentIdInput.value = wallet.studentId || studentId;
+        showMessage("Wallet loaded successfully.");
+      } catch (error) {
+        document.getElementById("studentName").textContent = "Student wallet";
+        document.getElementById("balance").textContent = "₹—";
+        document.getElementById("dailyLimit").textContent = "—";
+        document.getElementById("weeklyLimit").textContent = "—";
+        showMessage(error.message, true);
+      }
+    }
+
+    loadWalletBtn.addEventListener("click", () => {
+      loadWallet(studentIdInput.value);
+    });
+
+    // Razorpay online payment
+    async function startOnlinePayment(studentId, amount) {
+      if (typeof window.Razorpay !== "function") {
+        throw new Error(
+          "Razorpay Checkout could not load. Check your internet connection and refresh."
+        );
+      }
+
+      // Ask the backend to create an order first.
+      const orderData = await apiRequest("/razorpay/create-order", {
+        method: "POST",
+        body: JSON.stringify({ studentId, amount })
+      });
+
+      if (!orderData.success || !orderData.orderId || !orderData.keyId) {
+        throw new Error(orderData.message || "Could not create payment order.");
+      }
+
+      return new Promise((resolve, reject) => {
+        let finished = false;
+
+        const checkout = new window.Razorpay({
+          key: orderData.keyId,
+          amount: orderData.amount,
+          currency: orderData.currency || "INR",
+          name: "EduWallet",
+          description: "Student wallet top-up",
+          order_id: orderData.orderId,
+
+          handler: async function (response) {
+            try {
+              showMessage("Verifying payment securely…");
+
+              // Never credit the wallet directly from the browser.
+              const verification = await apiRequest(
+                "/razorpay/verify-payment",
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature
+                  })
+                }
+              );
+
+              if (!verification.success) {
+                throw new Error(
+                  verification.message || "Payment verification failed."
+                );
+              }
+
+              finished = true;
+              resolve(verification);
+            } catch (error) {
+              finished = true;
+              reject(new Error(
+                "Payment verification needs attention: " + error.message +
+                ". Check the wallet and payment status before retrying."
+              ));
+            }
+          },
+
+          modal: {
+            ondismiss: function () {
+              if (!finished) {
+                finished = true;
+                reject(new Error("Payment window closed. No wallet credit was confirmed."));
+              }
+            }
+          },
+
+          theme: {
+            color: "#2563eb"
+          }
+        });
+
+        checkout.on("payment.failed", function (response) {
+          if (!finished) {
+            finished = true;
+            reject(new Error(
+              response.error?.description || "Test payment failed."
+            ));
+          }
+        });
+
+        checkout.open();
+      });
+    }
+
+    topupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (!["Admin", "Parent"].includes(user.role)) {
+        showMessage("You are not allowed to add money.", true);
+        return;
+      }
+
+      if (paymentInProgress) return;
+
+      const studentId = studentIdInput.value.trim();
+      const amount = Number(document.getElementById("amount").value);
+      const paymentMethod = paymentMethodInput.value;
+
+      if (!studentId) {
+        showMessage("Enter a Student ID first.", true);
+        return;
+      }
+
+      if (!Number.isFinite(amount) || amount < 1 || amount > 50000) {
+        showMessage("Enter an amount between ₹1 and ₹50,000.", true);
+        return;
+      }
+
+      paymentInProgress = true;
+      topupBtn.disabled = true;
+      topupBtn.textContent = "Processing…";
+
+      try {
+        if (paymentMethod === "Online") {
+          const result = await startOnlinePayment(studentId, amount);
+
+          document.getElementById("amount").value = "";
+          await loadWallet(studentId);
+
+          showMessage(
+            result.message || "Payment verified and wallet credited successfully."
+          );
+        } else {
+          // Cash and Other use the existing top-up route.
+          const result = await apiRequest("/wallet/topup", {
+            method: "POST",
+            body: JSON.stringify({ studentId, amount, paymentMethod })
+          });
+
+          document.getElementById("amount").value = "";
+          await loadWallet(studentId);
+          showMessage(result.message || "Money added successfully.");
+        }
+      } catch (error) {
+        showMessage(error.message, true);
+      } finally {
+        paymentInProgress = false;
+        topupBtn.disabled = false;
+        topupBtn.textContent = "Add Money";
+      }
+    });
+  </script>
+</body>
+</html>

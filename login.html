@@ -1,0 +1,127 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Login</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="login-page">
+    <section class="welcome-panel">
+      <h1>EduWallet</h1>
+      <h2>Smart payments.<br>Safer school days.</h2>
+      <p>
+        A cashless school payment system that helps parents
+        manage their child's spending and makes canteen
+        payments easier.
+      </p>
+    </section>
+
+    <section class="login-panel">
+      <form id="loginForm" class="login-card">
+        <h2>Welcome back</h2>
+        <p>Sign in to access your EduWallet account.</p>
+
+        <label for="username">Username</label>
+        <input
+          id="username"
+          name="username"
+          required
+          autocomplete="username"
+          placeholder="Enter your username"
+        >
+
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          required
+          autocomplete="current-password"
+          placeholder="Enter password"
+        >
+
+        <label for="role">Account type</label>
+        <select id="role" name="role" required>
+          <option value="">Choose your account</option>
+          <option value="Admin">School Admin</option>
+          <option value="Parent">Parent</option>
+          <option value="Student">Student</option>
+          <option value="Canteen">Canteen Staff</option>
+        </select>
+
+        <button id="loginButton" type="submit">Sign In</button>
+        <p id="message" role="status"></p>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("loginForm");
+    const message = document.getElementById("message");
+    const button = document.getElementById("loginButton");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      message.textContent = "";
+      button.disabled = true;
+      button.textContent = "Signing in...";
+
+      try {
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+        const selectedRole = document.getElementById("role").value;
+
+        const response = await fetch("http://localhost:5000/api/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "Login failed.");
+        }
+
+        if (data.user.role !== selectedRole) {
+          throw new Error("Please select the correct account type.");
+        }
+
+        // Use the same session keys across EduWallet pages
+        sessionStorage.setItem("token", data.token);
+        sessionStorage.setItem("user", JSON.stringify(data.user));
+
+        const pages = {
+          Admin: "admin-dashboard.html",
+          Parent: "wallet.html",
+          Student: "student-dashboard.html",
+          Canteen: "canteen-dashboard.html"
+        };
+
+        const destination = pages[data.user.role];
+
+        if (!destination) {
+          sessionStorage.removeItem("token");
+          sessionStorage.removeItem("user");
+          throw new Error("No dashboard is configured for this account.");
+        }
+
+        window.location.href = destination;
+
+      } catch (error) {
+        message.textContent =
+          error.message || "Unable to connect to EduWallet. Check that the backend is running.";
+      } finally {
+        button.disabled = false;
+        button.textContent = "Sign In";
+      }
+    });
+  </script>
+</body>
+</html>

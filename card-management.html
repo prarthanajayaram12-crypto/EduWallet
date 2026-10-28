@@ -1,0 +1,406 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RFID Card Management | EduWallet</title>
+  <link rel="stylesheet" href="style.css">
+
+  <style>
+    .page-content {
+      max-width: 1100px;
+      margin: 35px auto;
+      padding: 0 20px;
+    }
+
+    .card-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      align-items: end;
+    }
+
+    .card-form label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .card-form input {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+
+    .btn {
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #5746d8;
+      color: white;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #555;
+    }
+
+    .btn-danger {
+      background: #bd3545;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+
+    th {
+      background: #f6f5fc;
+    }
+
+    .message {
+      margin: 15px 0;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+  </style>
+</head>
+
+<body>
+  <header class="topbar">
+    <div>
+      <strong>EduWallet</strong>
+      <span style="margin-left:12px">RFID Card Management</span>
+    </div>
+    <button class="btn btn-secondary" id="logoutBtn" type="button">
+      Logout
+    </button>
+  </header>
+
+  <main class="page-content">
+    <p><a href="admin-dashboard.html">← Back to Admin Dashboard</a></p>
+
+    <section class="card">
+      <h2>Link an RFID Card</h2>
+      <p>Connect a physical or simulated RFID card ID to a registered student.</p>
+
+      <form id="linkForm" class="card-form">
+        <div>
+          <label for="studentId">Student ID</label>
+          <input
+            id="studentId"
+            name="studentId"
+            required
+            maxlength="50"
+            placeholder="e.g. STU001"
+          >
+        </div>
+
+        <div>
+          <label for="rfidCardId">RFID Card ID</label>
+          <input
+            id="rfidCardId"
+            name="rfidCardId"
+            required
+            maxlength="100"
+            placeholder="e.g. RFID1001"
+          >
+        </div>
+
+        <button class="btn" id="linkBtn" type="submit">
+          Link Card
+        </button>
+      </form>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card" style="margin-top:24px">
+      <h2>Registered RFID Cards</h2>
+
+      <button class="btn" id="refreshBtn" type="button">
+        Refresh Cards
+      </button>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Student ID</th>
+              <th>Student Name</th>
+              <th>Class</th>
+              <th>RFID Card ID</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody id="cardsBody">
+            <tr><td colspan="6">Loading cards...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let currentUser = null;
+
+    try {
+      currentUser = JSON.parse(
+        sessionStorage.getItem("user") || "null"
+      );
+    } catch (error) {
+      currentUser = null;
+    }
+
+    const cardsBody = document.getElementById("cardsBody");
+    const message = document.getElementById("message");
+    const linkForm = document.getElementById("linkForm");
+    const linkBtn = document.getElementById("linkBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+
+    if (!token || !currentUser || currentUser.role !== "Admin") {
+      window.location.replace("login.html");
+    } else {
+      loadCards();
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.replace("login.html");
+    });
+
+    function showMessage(text, isError = false) {
+      message.textContent = text || "";
+      message.style.color = isError ? "#bd3545" : "#18794e";
+    }
+
+    function showTableMessage(text) {
+      cardsBody.replaceChildren();
+
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+
+      cell.colSpan = 6;
+      cell.textContent = text;
+
+      row.appendChild(cell);
+      cardsBody.appendChild(row);
+    }
+
+    async function request(endpoint, options = {}) {
+      const headers = {
+        Authorization: "Bearer " + token,
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {})
+      };
+
+      const response = await fetch(API + endpoint, {
+        ...options,
+        headers
+      });
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error("The server returned an invalid response.");
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          data.message || "Your session expired or access was denied."
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || "The request could not be completed.");
+      }
+
+      return data;
+    }
+
+    function makeButton(text, className, onClick) {
+      const button = document.createElement("button");
+
+      button.type = "button";
+      button.textContent = text;
+      button.className = ("btn " + (className || "")).trim();
+      button.addEventListener("click", onClick);
+
+      return button;
+    }
+
+    async function loadCards() {
+      refreshBtn.disabled = true;
+      showTableMessage("Loading cards...");
+
+      try {
+        const data = await request("/rfid-cards");
+        const cards = Array.isArray(data.cards) ? data.cards : [];
+
+        if (cards.length === 0) {
+          showTableMessage("No students registered yet. Add students first.");
+          return;
+        }
+
+        cardsBody.replaceChildren();
+
+        cards.forEach(student => {
+          const row = document.createElement("tr");
+
+          const values = [
+            student.studentId,
+            student.name,
+            student.className || "—",
+            student.rfidCardId || "Not linked",
+            student.cardStatus || "Unlinked"
+          ];
+
+          values.forEach(value => {
+            const cell = document.createElement("td");
+            cell.textContent = String(value ?? "—");
+            row.appendChild(cell);
+          });
+
+          const actionsCell = document.createElement("td");
+          const actions = document.createElement("div");
+          actions.className = "actions";
+
+          if (student.rfidCardId) {
+            if (student.cardStatus === "Blocked") {
+              actions.appendChild(
+                makeButton("Unblock", "", () =>
+                  updateStatus(student.studentId, "Active")
+                )
+              );
+            } else if (student.cardStatus === "Active") {
+              actions.appendChild(
+                makeButton("Block", "btn-danger", () =>
+                  updateStatus(student.studentId, "Blocked")
+                )
+              );
+            }
+
+            actions.appendChild(
+              makeButton("Unlink", "btn-secondary", () =>
+                unlinkCard(student.studentId)
+              )
+            );
+          }
+
+          actionsCell.appendChild(actions);
+          row.appendChild(actionsCell);
+          cardsBody.appendChild(row);
+        });
+      } catch (error) {
+        showTableMessage(error.message);
+        console.error("Load RFID cards error:", error);
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    linkForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      showMessage("");
+
+      const studentId =
+        document.getElementById("studentId").value.trim();
+
+      const rfidCardId =
+        document.getElementById("rfidCardId").value.trim();
+
+      if (!studentId || !rfidCardId) {
+        showMessage("Enter both Student ID and RFID Card ID.", true);
+        return;
+      }
+
+      linkBtn.disabled = true;
+      linkBtn.textContent = "Linking...";
+
+      try {
+        const data = await request("/rfid-cards/link", {
+          method: "POST",
+          body: JSON.stringify({ studentId, rfidCardId })
+        });
+
+        showMessage(data.message || "RFID card linked successfully.");
+        linkForm.reset();
+        await loadCards();
+      } catch (error) {
+        showMessage(error.message, true);
+        console.error("Link RFID card error:", error);
+      } finally {
+        linkBtn.disabled = false;
+        linkBtn.textContent = "Link Card";
+      }
+    });
+
+    async function updateStatus(studentId, cardStatus) {
+      try {
+        const data = await request("/rfid-cards/status", {
+          method: "PATCH",
+          body: JSON.stringify({ studentId, cardStatus })
+        });
+
+        showMessage(data.message || "RFID card status updated.");
+        await loadCards();
+      } catch (error) {
+        showMessage(error.message, true);
+        console.error("Update RFID status error:", error);
+      }
+    }
+
+    async function unlinkCard(studentId) {
+      if (!confirm("Unlink the RFID card for " + studentId + "?")) {
+        return;
+      }
+
+      try {
+        const data = await request(
+          "/rfid-cards/" + encodeURIComponent(studentId),
+          { method: "DELETE" }
+        );
+
+        showMessage(data.message || "RFID card unlinked.");
+        await loadCards();
+      } catch (error) {
+        showMessage(error.message, true);
+        console.error("Unlink RFID card error:", error);
+      }
+    }
+
+    refreshBtn.addEventListener("click", loadCards);
+  </script>
+</body>
+</html>

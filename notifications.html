@@ -1,0 +1,208 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Notifications</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Notifications</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Notifications</h1>
+    <p id="message" role="status">Loading notifications…</p>
+
+    <section id="notificationList" class="card">
+      <p>Loading…</p>
+    </section>
+
+    <p>
+      <a id="dashboardLink" href="index.html">Dashboard</a>
+      &nbsp; | &nbsp;
+      <a href="wallet.html">Wallet</a>
+      &nbsp; | &nbsp;
+      <a href="transactions.html">Transactions</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const list = document.getElementById("notificationList");
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    });
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || user.role;
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        user.role === "Canteen" ? "canteen-dashboard.html" :
+        "wallet.html";
+
+      // Canteen users are now allowed to view notifications.
+      if (!["Admin", "Parent", "Student", "Canteen"].includes(user.role)) {
+        list.replaceChildren();
+        showMessage("You do not have permission to view notifications.", true);
+      } else {
+        loadNotifications();
+      }
+    }
+
+    async function loadNotifications() {
+      list.replaceChildren();
+
+      const loading = document.createElement("p");
+      loading.textContent = "Loading notifications…";
+      list.appendChild(loading);
+
+      showMessage("Fetching notifications…");
+
+      try {
+        const response = await fetch(API + "/notifications", {
+          headers: {
+            "Authorization": "Bearer " + token
+          }
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Unable to load notifications."
+          );
+        }
+
+        const notifications = data.notifications;
+
+        if (!Array.isArray(notifications)) {
+          throw new Error("Unexpected notification response.");
+        }
+
+        list.replaceChildren();
+
+        if (notifications.length === 0) {
+          const empty = document.createElement("p");
+          empty.textContent = "You have no notifications yet.";
+          list.appendChild(empty);
+          showMessage("No notifications found.");
+          return;
+        }
+
+        notifications.forEach((notification) => {
+          const item = document.createElement("article");
+          item.className = "card";
+
+          const heading = document.createElement("h3");
+          heading.textContent = notification.title || "Notification";
+
+          const content = document.createElement("p");
+          content.textContent = notification.message || "";
+
+          const details = document.createElement("p");
+          details.textContent =
+            (notification.type || "General") + " • " +
+            (notification.createdAt
+              ? new Date(notification.createdAt).toLocaleString("en-IN")
+              : "");
+
+          item.append(heading, content, details);
+
+          // Canteen users can view notifications but cannot mark them read.
+          if (user.role === "Canteen") {
+            const status = document.createElement("p");
+            status.textContent = notification.isRead
+              ? "Read"
+              : "Unread";
+            item.appendChild(status);
+          } else if (notification.isRead) {
+            const status = document.createElement("p");
+            status.textContent = "Read";
+            item.appendChild(status);
+          } else {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Mark as read";
+
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+
+              try {
+                const result = await fetch(
+                  API + "/notifications/" +
+                    encodeURIComponent(notification._id) + "/read",
+                  {
+                    method: "PATCH",
+                    headers: {
+                      "Authorization": "Bearer " + token
+                    }
+                  }
+                );
+
+                const resultData = await result.json().catch(() => ({}));
+
+                if (!result.ok) {
+                  throw new Error(
+                    resultData.message || "Could not mark as read."
+                  );
+                }
+
+                showMessage("Notification marked as read.");
+                await loadNotifications();
+              } catch (error) {
+                button.disabled = false;
+                showMessage(error.message, true);
+              }
+            });
+
+            item.appendChild(button);
+          }
+
+          list.appendChild(item);
+        });
+
+        showMessage("Notifications loaded.");
+      } catch (error) {
+        list.replaceChildren();
+
+        const errorText = document.createElement("p");
+        errorText.textContent = error.message;
+        list.appendChild(errorText);
+
+        showMessage(error.message, true);
+      }
+    }
+  </script>
+</body>
+</html>

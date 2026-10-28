@@ -1,0 +1,250 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Spending Analysis</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Spending Analysis</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Spending Analysis</h1>
+    <p id="message" role="status">Loading transactions…</p>
+
+    <section class="card">
+      <label for="studentId">Student ID</label>
+      <div class="form-group">
+        <input id="studentId" type="text" placeholder="Enter student ID">
+        <button id="loadBtn" type="button">Load Analysis</button>
+      </div>
+      <p class="muted">Administrators can enter a student ID. Parents and students see their linked account.</p>
+    </section>
+
+    <section class="card">
+      <h2>Total Spent</h2>
+      <h1 id="totalSpent">₹—</h1>
+      <p>Based on successful debit transactions returned by EduWallet.</p>
+    </section>
+
+    <section class="card">
+      <h2>Spending by Payment Method</h2>
+      <div id="methodSummary">No data yet.</div>
+    </section>
+
+    <section class="card">
+      <h2>Recent Transactions</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Payment Method</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody id="transactionRows">
+            <tr><td colspan="4">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p>
+      <a id="dashboardLink" href="index.html">Back to Dashboard</a>
+      &nbsp; | &nbsp;
+      <a href="transactions.html">All Transactions</a>
+      &nbsp; | &nbsp;
+      <a href="wallet.html">My Wallet</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const studentIdInput = document.getElementById("studentId");
+    const loadBtn = document.getElementById("loadBtn");
+    const transactionRows = document.getElementById("transactionRows");
+    const methodSummary = document.getElementById("methodSummary");
+
+    function money(value) {
+      return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b42318" : "#18794e";
+    }
+
+    function logout() {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", logout);
+
+    function addCell(row, text) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.appendChild(cell);
+    }
+
+    function addEmptyRow(text) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 4;
+      cell.textContent = text;
+      row.appendChild(cell);
+      transactionRows.appendChild(row);
+    }
+
+    async function loadAnalysis(studentId) {
+      const id = String(studentId || "").trim();
+
+      if (!id) {
+        showMessage("Enter a Student ID first.", true);
+        return;
+      }
+
+      showMessage("Loading spending analysis…");
+      document.getElementById("totalSpent").textContent = "₹—";
+      transactionRows.replaceChildren();
+      methodSummary.textContent = "Loading…";
+
+      try {
+        const response = await fetch(
+          API + "/transactions?studentId=" + encodeURIComponent(id),
+          {
+            headers: { Authorization: "Bearer " + token }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(data.message || "Could not load transactions.");
+        }
+
+        const transactions = Array.isArray(data)
+          ? data
+          : data.transactions;
+
+        if (!Array.isArray(transactions)) {
+          throw new Error("The server returned an unexpected transaction response.");
+        }
+
+        const debits = transactions.filter(
+          item => item.type === "Debit" && item.status === "Success"
+        );
+
+        const total = debits.reduce(
+          (sum, item) => sum + Number(item.amount || 0), 0
+        );
+
+        document.getElementById("totalSpent").textContent = money(total);
+
+        const methods = {};
+        debits.forEach(item => {
+          const method = item.paymentMethod || "Other";
+          methods[method] = (methods[method] || 0) + Number(item.amount || 0);
+        });
+
+        methodSummary.replaceChildren();
+
+        if (Object.keys(methods).length === 0) {
+          methodSummary.textContent = "No successful spending transactions yet.";
+        } else {
+          Object.entries(methods).forEach(([method, amount]) => {
+            const paragraph = document.createElement("p");
+            paragraph.textContent = method + ": " + money(amount);
+            methodSummary.appendChild(paragraph);
+          });
+        }
+
+        if (debits.length === 0) {
+          addEmptyRow("No successful debit transactions found.");
+        } else {
+          debits.slice(0, 20).forEach(item => {
+            const row = document.createElement("tr");
+
+            const date = item.createdAt
+              ? new Date(item.createdAt).toLocaleString("en-IN")
+              : "—";
+
+            addCell(row, date);
+            addCell(row, item.description || "Canteen purchase");
+            addCell(row, item.paymentMethod || "—");
+            addCell(row, money(item.amount));
+
+            transactionRows.appendChild(row);
+          });
+        }
+
+        showMessage("Spending analysis loaded successfully.");
+      } catch (error) {
+        transactionRows.replaceChildren();
+        addEmptyRow("Unable to load spending records.");
+        methodSummary.textContent = "Analysis unavailable.";
+        showMessage(error.message, true);
+      }
+    }
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else if (!["Admin", "Parent", "Student"].includes(user.role)) {
+      document.body.innerHTML =
+        "<main class='container'><h2>Access denied</h2>" +
+        "<a href='login.html'>Return to login</a></main>";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || user.role;
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        "wallet.html";
+
+      if (user.role === "Admin") {
+        loadBtn.hidden = false;
+        studentIdInput.readOnly = false;
+      } else {
+        loadBtn.hidden = true;
+        studentIdInput.value = user.studentId || "";
+        studentIdInput.readOnly = true;
+      }
+
+      if (user.studentId || user.role === "Admin") {
+        loadAnalysis(user.studentId || "");
+      } else {
+        showMessage("Your account is not linked to a student record.", true);
+      }
+    }
+
+    loadBtn.addEventListener("click", () => {
+      loadAnalysis(studentIdInput.value);
+    });
+  </script>
+</body>
+</html>

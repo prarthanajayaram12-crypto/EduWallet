@@ -1,0 +1,97 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Settings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Settings</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Settings</h1>
+    <p id="message" role="status"></p>
+
+    <section class="card">
+      <h2>Account</h2>
+      <p>Signed in as: <strong id="accountName">—</strong></p>
+      <p>Account role: <strong id="accountRole">—</strong></p>
+      <p>Username: <strong id="accountUsername">—</strong></p>
+    </section>
+
+    <section class="card">
+      <h2>Privacy and Security</h2>
+      <p>Your account uses a login session to access EduWallet.</p>
+      <button id="logoutAllBtn" type="button">Log Out</button>
+      <p class="muted">
+        Password changes and notification preferences are not available here yet.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Quick Links</h2>
+      <p><a id="dashboardLink" href="index.html">Dashboard</a></p>
+      <p><a href="profile.html">My Profile</a></p>
+      <p><a href="wallet.html">My Wallet</a></p>
+      <p><a href="notifications.html">Notifications</a></p>
+    </section>
+  </main>
+
+  <script>
+    let user = {};
+
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const token = sessionStorage.getItem("token");
+
+    function logout() {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("logoutBtn")
+      .addEventListener("click", logout);
+
+    document.getElementById("logoutAllBtn")
+      .addEventListener("click", logout);
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || "Settings";
+
+      document.getElementById("accountName").textContent =
+        user.name || "Not available";
+
+      document.getElementById("accountRole").textContent =
+        user.role || "Not available";
+
+      document.getElementById("accountUsername").textContent =
+        user.username || "Not available";
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        user.role === "Canteen" ? "canteen-dashboard.html" :
+        "wallet.html";
+
+      document.getElementById("message").textContent =
+        "Settings loaded successfully.";
+    }
+  </script>
+</body>
+</html>

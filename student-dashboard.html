@@ -1,0 +1,206 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Student Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Student</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Student Dashboard</h1>
+    <p id="message" role="status">Loading your details…</p>
+
+    <section class="card">
+      <h2>My Wallet</h2>
+      <p>Student ID: <strong id="studentId">—</strong></p>
+      <p>Available balance</p>
+      <h1 id="balance">₹—</h1>
+      <p>Daily spending limit: <strong id="dailyLimit">—</strong></p>
+      <p>Weekly spending limit: <strong id="weeklyLimit">—</strong></p>
+      <a href="wallet.html">View Wallet</a>
+    </section>
+
+    <section class="card">
+      <h2>Recent Transactions</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="transactionRows">
+            <tr><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><a href="transactions.html">View all transactions</a></p>
+    </section>
+
+    <section class="card">
+      <h2>Quick Links</h2>
+      <p><a href="notifications.html">My Notifications</a></p>
+      <p><a href="profile.html">My Profile</a></p>
+      <p><a href="settings.html">Settings</a></p>
+    </section>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const transactionRows = document.getElementById("transactionRows");
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    function money(value) {
+      return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    });
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else if (user.role !== "Student") {
+      document.body.innerHTML =
+        "<main class='container'><h2>Access denied</h2>" +
+        "<p>Please sign in with a student account.</p>" +
+        "<a href='login.html'>Return to login</a></main>";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || "Student";
+
+      document.getElementById("studentId").textContent =
+        user.studentId || "Not linked";
+
+      if (user.studentId) {
+        loadDashboard(user.studentId);
+      } else {
+        showMessage(
+          "Your account is not linked to a student record. Contact the administrator.",
+          true
+        );
+        transactionRows.replaceChildren();
+        addMessageRow("No student account linked.");
+      }
+    }
+
+    function addMessageRow(text) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 5;
+      cell.textContent = text;
+      row.appendChild(cell);
+      transactionRows.appendChild(row);
+    }
+
+    async function apiRequest(path) {
+      const response = await fetch(API + path, {
+        headers: { "Authorization": "Bearer " + token }
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.message || "Unable to load dashboard data.");
+      }
+
+      return data;
+    }
+
+    async function loadDashboard(studentId) {
+      try {
+        const walletData = await apiRequest(
+          "/wallet/" + encodeURIComponent(studentId)
+        );
+
+        const wallet = walletData.wallet || walletData;
+
+        document.getElementById("balance").textContent =
+          money(wallet.balance ?? wallet.walletBalance);
+
+        document.getElementById("dailyLimit").textContent =
+          money(wallet.dailyLimit);
+
+        document.getElementById("weeklyLimit").textContent =
+          money(wallet.weeklyLimit);
+
+        const transactionData = await apiRequest(
+          "/transactions?studentId=" + encodeURIComponent(studentId)
+        );
+
+        const transactions = Array.isArray(transactionData)
+          ? transactionData
+          : transactionData.transactions;
+
+        transactionRows.replaceChildren();
+
+        if (!Array.isArray(transactions) || transactions.length === 0) {
+          addMessageRow("No transactions recorded yet.");
+        } else {
+          transactions.slice(0, 5).forEach((transaction) => {
+            const row = document.createElement("tr");
+
+            const values = [
+              transaction.createdAt
+                ? new Date(transaction.createdAt).toLocaleDateString("en-IN")
+                : "—",
+              transaction.type || "—",
+              (transaction.type === "Debit" ? "−" : "+") +
+                money(transaction.amount),
+              transaction.paymentMethod || "—",
+              transaction.status || "—"
+            ];
+
+            values.forEach((value) => {
+              const cell = document.createElement("td");
+              cell.textContent = String(value);
+              row.appendChild(cell);
+            });
+
+            transactionRows.appendChild(row);
+          });
+        }
+
+        showMessage("Dashboard details loaded.");
+      } catch (error) {
+        showMessage(error.message, true);
+        transactionRows.replaceChildren();
+        addMessageRow("Unable to load transactions.");
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,407 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-brand">EduWallet</div>
+    <div>
+      <span id="adminName">School Admin</span>
+      <button id="logoutButton" class="secondary-button" style="margin-left:12px;">
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <div class="dashboard-layout">
+    <nav class="sidebar">
+      <a href="admin-dashboard.html" class="active">Overview</a>
+      <a href="students.html">Students</a>
+      <a href="transactions.html">Transactions</a>
+      <a href="card-management.html">RFID Cards</a>
+      <a href="spending-analysis.html">Spending Analysis</a>
+      <a href="notifications.html">Notifications</a>
+      <a href="profile.html">Profile</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+
+    <main class="dashboard-content">
+      <section class="page-heading">
+        <h1>Admin Dashboard</h1>
+        <p>Manage school payments and monitor EduWallet activity.</p>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <p>Total Students</p>
+          <h2 id="studentCount">Loading...</h2>
+        </article>
+
+        <article class="stat-card">
+          <p>Active RFID Cards</p>
+          <h2 id="cardCount">Loading...</h2>
+        </article>
+
+        <article class="stat-card">
+          <p>Total Wallet Balance</p>
+          <h2 id="walletTotal">Loading...</h2>
+        </article>
+
+        <article class="stat-card">
+          <p>Total Transactions</p>
+          <h2 id="transactionCount">Loading...</h2>
+        </article>
+      </section>
+
+      <section class="content-card">
+        <h2>School Management</h2>
+        <p>Manage students, RFID cards and payment records.</p>
+
+        <div class="form-actions" style="margin-top:20px;">
+          <a href="students.html" class="primary-button" style="width:auto;">
+            Manage Students
+          </a>
+
+          <a href="card-management.html" class="secondary-button">
+            Manage RFID Cards
+          </a>
+
+          <a href="transactions.html" class="secondary-button">
+            View Transactions
+          </a>
+        </div>
+      </section>
+
+      <!-- Create Parent Account -->
+      <section class="content-card">
+        <h2>Create Parent Account</h2>
+        <p>Create login credentials and link a parent to their child.</p>
+
+        <form id="parentForm">
+          <div class="form-group">
+            <label for="parentName">Parent Name</label>
+            <input
+              type="text"
+              id="parentName"
+              placeholder="Enter parent's full name"
+              required
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="parentUsername">Username</label>
+            <input
+              type="text"
+              id="parentUsername"
+              placeholder="Choose a username"
+              required
+              autocomplete="off"
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="parentPassword">Password</label>
+            <input
+              type="password"
+              id="parentPassword"
+              placeholder="At least 6 characters"
+              minlength="6"
+              required
+              autocomplete="new-password"
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="parentStudentId">Child's Student ID</label>
+            <input
+              type="text"
+              id="parentStudentId"
+              placeholder="Example: STU001"
+              required
+            >
+          </div>
+
+          <button type="submit" class="primary-button" id="createParentButton">
+            Create Parent Account
+          </button>
+
+          <p id="parentMessage" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="content-card">
+        <h2>Recent Transactions</h2>
+
+        <p id="transactionMessage" class="empty-state" role="status">
+          Loading transactions...
+        </p>
+
+        <div id="recentTransactions"></div>
+      </section>
+
+      <p id="pageMessage" role="status"></p>
+    </main>
+  </div>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = null;
+
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "null");
+    } catch (error) {
+      user = null;
+    }
+
+    const adminName = document.getElementById("adminName");
+    const pageMessage = document.getElementById("pageMessage");
+
+    if (!token || !user || user.role !== "Admin") {
+      window.location.replace("login.html");
+    } else {
+      adminName.textContent = user.name || "School Admin";
+      loadDashboard();
+    }
+
+    document.getElementById("logoutButton").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.replace("login.html");
+    });
+
+    async function getData(endpoint) {
+      const response = await fetch(API + endpoint, {
+        headers: {
+          Authorization: "Bearer " + token
+        }
+      });
+
+      let result;
+
+      try {
+        result = await response.json();
+      } catch (error) {
+        throw new Error("The server returned an invalid response.");
+      }
+
+      if (!response.ok || result.success === false) {
+        throw new Error(result.message || "Unable to load dashboard data.");
+      }
+
+      return result;
+    }
+
+    function getList(result, keys) {
+      if (Array.isArray(result)) return result;
+
+      for (const key of keys) {
+        if (Array.isArray(result[key])) return result[key];
+      }
+
+      return [];
+    }
+
+    function getBalance(student) {
+      const balance = Number(student.walletBalance ?? 0);
+      return Number.isFinite(balance) ? balance : 0;
+    }
+
+    function hasActiveCard(student) {
+      return Boolean(
+        student.rfidCardId &&
+        String(student.rfidCardId).trim() &&
+        student.cardStatus === "Active"
+      );
+    }
+
+    function money(value) {
+      return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function displayValue(value) {
+      return value === null || value === undefined || value === ""
+        ? "—"
+        : String(value);
+    }
+
+    async function loadDashboard() {
+      pageMessage.textContent = "";
+
+      const results = await Promise.allSettled([
+        getData("/students"),
+        getData("/transactions")
+      ]);
+
+      const errors = [];
+
+      if (results[0].status === "fulfilled") {
+        const students = getList(results[0].value, [
+          "students", "data", "results"
+        ]);
+
+        document.getElementById("studentCount").textContent = students.length;
+        document.getElementById("cardCount").textContent =
+          students.filter(hasActiveCard).length;
+
+        document.getElementById("walletTotal").textContent = money(
+          students.reduce((total, student) => total + getBalance(student), 0)
+        );
+      } else {
+        document.getElementById("studentCount").textContent = "—";
+        document.getElementById("cardCount").textContent = "—";
+        document.getElementById("walletTotal").textContent = "—";
+        errors.push("Student statistics could not be loaded.");
+        console.error(results[0].reason);
+      }
+
+      if (results[1].status === "fulfilled") {
+        const transactions = getList(results[1].value, [
+          "transactions", "data", "results"
+        ]);
+
+        document.getElementById("transactionCount").textContent =
+          transactions.length;
+
+        renderTransactions(transactions);
+      } else {
+        document.getElementById("transactionCount").textContent = "—";
+        document.getElementById("transactionMessage").textContent =
+          "Transactions could not be loaded.";
+        document.getElementById("recentTransactions").replaceChildren();
+        errors.push("Transaction history could not be loaded.");
+        console.error(results[1].reason);
+      }
+
+      pageMessage.textContent = errors.join(" ");
+    }
+
+    // Create a parent account through the Admin-only backend route.
+    document.getElementById("parentForm").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const message = document.getElementById("parentMessage");
+      const button = document.getElementById("createParentButton");
+
+      const name = document.getElementById("parentName").value.trim();
+      const username = document.getElementById("parentUsername").value.trim();
+      const password = document.getElementById("parentPassword").value;
+      const studentId = document.getElementById("parentStudentId").value.trim();
+
+      message.textContent = "";
+      button.disabled = true;
+      button.textContent = "Creating account...";
+
+      try {
+        const response = await fetch(API + "/parents", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token
+          },
+          body: JSON.stringify({ name, username, password, studentId })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Could not create parent account.");
+        }
+
+        message.textContent =
+          "Parent account created successfully. Username: " +
+          result.parent.username +
+          ". Linked Student ID: " + result.parent.studentId + ".";
+
+        document.getElementById("parentForm").reset();
+      } catch (error) {
+        message.textContent = error.message || "Could not connect to the server.";
+      } finally {
+        button.disabled = false;
+        button.textContent = "Create Parent Account";
+      }
+    });
+
+    function renderTransactions(transactions) {
+      const container = document.getElementById("recentTransactions");
+      const message = document.getElementById("transactionMessage");
+
+      container.replaceChildren();
+
+      if (transactions.length === 0) {
+        message.textContent = "No transactions found.";
+        return;
+      }
+
+      message.textContent = "";
+
+      const table = document.createElement("table");
+      table.style.width = "100%";
+
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+
+      ["Date", "Student", "Type", "Amount", "Method", "Status"].forEach(label => {
+        const th = document.createElement("th");
+        th.textContent = label;
+        headerRow.appendChild(th);
+      });
+
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+
+      const sortedTransactions = [...transactions].sort((a, b) => {
+        return new Date(b.createdAt || b.date || 0) -
+               new Date(a.createdAt || a.date || 0);
+      });
+
+      sortedTransactions.slice(0, 5).forEach(transaction => {
+        const row = document.createElement("tr");
+
+        const rawDate = transaction.createdAt || transaction.date;
+        const date = rawDate && !Number.isNaN(new Date(rawDate).getTime())
+          ? new Date(rawDate).toLocaleDateString("en-IN")
+          : "—";
+
+        const amount = Number(transaction.amount || 0);
+        const sign = transaction.type === "Credit" ? "+" :
+                     transaction.type === "Debit" ? "−" : "";
+
+        const values = [
+          date,
+          transaction.studentName ||
+            transaction.student?.name ||
+            transaction.studentId ||
+            "—",
+          transaction.type,
+          sign + money(amount),
+          transaction.paymentMethod || "—",
+          transaction.status || "—"
+        ];
+
+        values.forEach(value => {
+          const cell = document.createElement("td");
+          cell.textContent = displayValue(value);
+          row.appendChild(cell);
+        });
+
+        tbody.appendChild(row);
+      });
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduWallet | Transactions</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet</h2>
+    <div>
+      <span id="userName">Transactions</span>
+      <button id="logoutBtn" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <h1>Transaction History</h1>
+    <p id="message" role="status">Loading transactions…</p>
+
+    <section class="card">
+      <div class="form-group" id="studentFilter">
+        <label for="studentId">Student ID (Admin only)</label>
+        <input id="studentId" type="text" placeholder="Enter student ID">
+        <button id="loadBtn" type="button">Load</button>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Student</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Status</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody id="transactionRows">
+            <tr><td colspan="7">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p>
+      <a id="dashboardLink" href="index.html">Dashboard</a>
+      &nbsp; | &nbsp;
+      <a href="wallet.html">Wallet</a>
+      &nbsp; | &nbsp;
+      <a href="notifications.html">Notifications</a>
+    </p>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = {};
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "{}");
+    } catch {
+      user = {};
+    }
+
+    const message = document.getElementById("message");
+    const rows = document.getElementById("transactionRows");
+    const studentIdInput = document.getElementById("studentId");
+    const loadBtn = document.getElementById("loadBtn");
+    const studentFilter = document.getElementById("studentFilter");
+
+    function showMessage(text, isError = false) {
+      message.textContent = text;
+      message.style.color = isError ? "#b42318" : "#18794e";
+    }
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.href = "login.html";
+    });
+
+    if (!token || !user.role) {
+      window.location.href = "login.html";
+    } else {
+      document.getElementById("userName").textContent =
+        user.name || user.username || user.role;
+
+      document.getElementById("dashboardLink").href =
+        user.role === "Admin" ? "admin-dashboard.html" :
+        user.role === "Student" ? "student-dashboard.html" :
+        user.role === "Canteen" ? "canteen-dashboard.html" :
+        "wallet.html";
+
+      if (user.role === "Admin") {
+        studentFilter.hidden = false;
+        loadTransactions("");
+      } else if (user.role === "Parent" || user.role === "Student") {
+        studentFilter.hidden = true;
+
+        if (user.studentId) {
+          loadTransactions(user.studentId);
+        } else {
+          showMessage(
+            "Your account is not linked to a student record. Contact the administrator.",
+            true
+          );
+          showEmptyRow("Student account is not linked.");
+        }
+      } else if (user.role === "Canteen") {
+        // Canteen can view transactions; student filtering is hidden.
+        studentFilter.hidden = true;
+        loadTransactions("");
+      } else {
+        showMessage("You do not have permission to view this page.", true);
+        showEmptyRow("Access denied.");
+      }
+    }
+
+    function showEmptyRow(text) {
+      rows.replaceChildren();
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.textContent = text;
+      tr.appendChild(td);
+      rows.appendChild(tr);
+    }
+
+    async function loadTransactions(studentId) {
+      showEmptyRow("Loading…");
+      showMessage("Fetching transaction history…");
+
+      try {
+        const query = studentId
+          ? "?studentId=" + encodeURIComponent(studentId)
+          : "";
+
+        const response = await fetch(API + "/transactions" + query, {
+          headers: {
+            "Authorization": "Bearer " + token
+          }
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(data.message || "Could not load transactions.");
+        }
+
+        const transactions = Array.isArray(data)
+          ? data
+          : data.transactions;
+
+        if (!Array.isArray(transactions)) {
+          throw new Error("Unexpected transaction response.");
+        }
+
+        rows.replaceChildren();
+
+        if (transactions.length === 0) {
+          showEmptyRow("No transactions found.");
+          showMessage("No transactions recorded yet.");
+          return;
+        }
+
+        transactions.forEach((transaction) => {
+          const tr = document.createElement("tr");
+
+          const date = transaction.createdAt
+            ? new Date(transaction.createdAt).toLocaleString("en-IN")
+            : "—";
+
+          const values = [
+            date,
+            transaction.studentName || transaction.studentId || "—",
+            transaction.type || "—",
+            (transaction.type === "Debit" ? "−" : "+") +
+              "₹" + Number(transaction.amount || 0).toFixed(2),
+            transaction.paymentMethod || "—",
+            transaction.status || "—",
+            transaction.description || "—"
+          ];
+
+          values.forEach((value) => {
+            const td = document.createElement("td");
+            td.textContent = String(value);
+            tr.appendChild(td);
+          });
+
+          rows.appendChild(tr);
+        });
+
+        showMessage("Transaction history loaded.");
+      } catch (error) {
+        showEmptyRow(error.message);
+        showMessage(error.message, true);
+      }
+    }
+
+    loadBtn.addEventListener("click", () => {
+      if (user.role !== "Admin") return;
+      loadTransactions(studentIdInput.value.trim());
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Students | EduWallet</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h2>EduWallet — Manage Students</h2>
+    <button id="logoutBtn" class="btn" type="button">Logout</button>
+  </header>
+
+  <main class="container">
+    <p><a href="admin-dashboard.html">← Back to Admin Dashboard</a></p>
+
+    <section class="card">
+      <h2>Add Student</h2>
+
+      <form id="studentForm">
+        <label for="studentId">Student ID</label>
+        <input
+          id="studentId"
+          name="studentId"
+          required
+          maxlength="50"
+          placeholder="e.g. STU002"
+        >
+
+        <label for="name">Student Name</label>
+        <input
+          id="name"
+          name="name"
+          required
+          maxlength="100"
+          placeholder="Enter student name"
+        >
+
+        <label for="className">Class</label>
+        <input
+          id="className"
+          name="className"
+          required
+          maxlength="30"
+          placeholder="e.g. 8A"
+        >
+
+        <label for="parentName">Parent Name</label>
+        <input
+          id="parentName"
+          name="parentName"
+          maxlength="100"
+          placeholder="Enter parent name"
+        >
+
+        <button id="addStudentBtn" type="submit" class="btn">
+          Add Student
+        </button>
+      </form>
+
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card">
+      <h2>Student Records</h2>
+
+      <button id="refreshBtn" class="btn" type="button">
+        Refresh Records
+      </button>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Student ID</th>
+              <th>Name</th>
+              <th>Class</th>
+              <th>Parent</th>
+              <th>Wallet Balance</th>
+              <th>RFID Status</th>
+            </tr>
+          </thead>
+
+          <tbody id="studentsTable">
+            <tr>
+              <td colspan="6">Loading students...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API = "http://localhost:5000/api";
+    const token = sessionStorage.getItem("token");
+
+    let user = null;
+
+    try {
+      user = JSON.parse(sessionStorage.getItem("user") || "null");
+    } catch (error) {
+      user = null;
+    }
+
+    const table = document.getElementById("studentsTable");
+    const message = document.getElementById("message");
+    const form = document.getElementById("studentForm");
+    const addButton = document.getElementById("addStudentBtn");
+    const refreshButton = document.getElementById("refreshBtn");
+
+    if (!token || !user || user.role !== "Admin") {
+      window.location.replace("login.html");
+    } else {
+      loadStudents();
+    }
+
+    function showTableMessage(text) {
+      table.replaceChildren();
+
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+
+      cell.colSpan = 6;
+      cell.textContent = text;
+
+      row.appendChild(cell);
+      table.appendChild(row);
+    }
+
+    function formatMoney(value) {
+      const amount = Number(value ?? 0);
+
+      return "₹" + (Number.isFinite(amount) ? amount : 0)
+        .toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+    }
+
+    async function apiRequest(endpoint, options = {}) {
+      const response = await fetch(API + endpoint, {
+        ...options,
+        headers: {
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          Authorization: "Bearer " + token,
+          ...options.headers
+        }
+      });
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error("The server returned an invalid response.");
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          data.message || "Your session has expired or access was denied."
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || "The request could not be completed.");
+      }
+
+      return data;
+    }
+
+    async function loadStudents() {
+      refreshButton.disabled = true;
+      showTableMessage("Loading student records...");
+
+      try {
+        const data = await apiRequest("/students");
+        const students = Array.isArray(data.students)
+          ? data.students
+          : [];
+
+        if (students.length === 0) {
+          showTableMessage("No students added yet.");
+          return;
+        }
+
+        table.replaceChildren();
+
+        students.forEach(student => {
+          const row = document.createElement("tr");
+
+          const values = [
+            student.studentId,
+            student.name,
+            student.className,
+            student.parentName || "—",
+            formatMoney(student.walletBalance),
+            student.cardStatus || "Unlinked"
+          ];
+
+          values.forEach(value => {
+            const cell = document.createElement("td");
+            cell.textContent = String(value ?? "—");
+            row.appendChild(cell);
+          });
+
+          table.appendChild(row);
+        });
+      } catch (error) {
+        showTableMessage(error.message);
+        console.error("Load students error:", error);
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const student = {
+        studentId: document.getElementById("studentId").value.trim(),
+        name: document.getElementById("name").value.trim(),
+        className: document.getElementById("className").value.trim(),
+        parentName: document.getElementById("parentName").value.trim()
+      };
+
+      if (!student.studentId || !student.name || !student.className) {
+        message.textContent = "Please fill in Student ID, Name and Class.";
+        return;
+      }
+
+      addButton.disabled = true;
+      addButton.textContent = "Adding...";
+      message.textContent = "";
+
+      try {
+        const data = await apiRequest("/students", {
+          method: "POST",
+          body: JSON.stringify(student)
+        });
+
+        message.textContent = data.message || "Student added successfully.";
+        form.reset();
+
+        await loadStudents();
+      } catch (error) {
+        message.textContent = error.message;
+        console.error("Add student error:", error);
+      } finally {
+        addButton.disabled = false;
+        addButton.textContent = "Add Student";
+      }
+    });
+
+    refreshButton.addEventListener("click", loadStudents);
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
+      window.location.replace("login.html");
+    });
+  </script>
+</body>
+</html>
