@@ -75,13 +75,16 @@
         const password = document.getElementById("password").value;
         const selectedRole = document.getElementById("role").value;
 
-        const response = await fetch("http://localhost:5000/api/login", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ username, password })
-        });
+        const response = await fetch(
+          "https://eduwallet-c8hd.onrender.com/api/login",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ username, password })
+          }
+        );
 
         const data = await response.json();
 
@@ -93,7 +96,6 @@
           throw new Error("Please select the correct account type.");
         }
 
-        // Use the same session keys across EduWallet pages
         sessionStorage.setItem("token", data.token);
         sessionStorage.setItem("user", JSON.stringify(data.user));
 
@@ -116,7 +118,8 @@
 
       } catch (error) {
         message.textContent =
-          error.message || "Unable to connect to EduWallet. Check that the backend is running.";
+          error.message ||
+          "Unable to connect to EduWallet. Please try again.";
       } finally {
         button.disabled = false;
         button.textContent = "Sign In";
