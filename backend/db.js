@@ -3,11 +3,15 @@ const mongoose = require("mongoose");
 
 async function connectDB() {
   try {
-    await mongoose.connect(
-      process.env.MONGO_URI || "mongodb://127.0.0.1:27017/eduwallet"
-    );
+    const mongoURI = process.env.MONGO_URI;
 
-    console.log("MongoDB connected successfully!");
+    if (!mongoURI) {
+      throw new Error("MONGO_URI is missing from environment variables");
+    }
+
+    await mongoose.connect(mongoURI);
+
+    console.log("MongoDB Atlas connected successfully!");
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);
     process.exit(1);
