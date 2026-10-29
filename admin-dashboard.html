@@ -176,12 +176,22 @@
       window.location.replace("login.html");
     });
 
-    async function getData(endpoint) {
-      const response = await fetch(API + endpoint, {
-        headers: {
-          Authorization: "Bearer " + token
-        }
-      });
+   async function getData(endpoint) {
+  const response = await fetch(
+    "https://eduwallet-c8hd.onrender.com/api/" + endpoint,
+    {
+      headers: {
+        Authorization: "Bearer " + token
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to load data: " + response.status);
+  }
+
+  return await response.json();
+}
 
       let result;
 
