@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,6 +35,7 @@
         <p>Manage school payments and monitor EduWallet activity.</p>
       </section>
 
+      <!-- Dashboard statistics -->
       <section class="stats-grid">
         <article class="stat-card">
           <p>Total Students</p>
@@ -58,6 +58,7 @@
         </article>
       </section>
 
+      <!-- School management -->
       <section class="content-card">
         <h2>School Management</h2>
         <p>Manage students, RFID cards and payment records.</p>
@@ -77,62 +78,84 @@
         </div>
       </section>
 
+      <!-- Create accounts -->
       <section class="content-card">
-        <h2>Create Parent Account</h2>
-        <p>Create login credentials and link a parent to their child.</p>
+        <h2>Create Account</h2>
+        <p>
+          Create Parent, Student, and Canteen Staff accounts.
+          Only the School Admin can create these accounts.
+        </p>
 
-        <form id="parentForm">
+        <form id="accountForm">
           <div class="form-group">
-            <label for="parentName">Parent Name</label>
+            <label for="accountRole">Account Type</label>
+            <select id="accountRole" required>
+              <option value="">Choose account type</option>
+              <option value="Parent">Parent</option>
+              <option value="Student">Student</option>
+              <option value="Canteen">Canteen Staff</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="accountName">Full Name</label>
             <input
+              id="accountName"
               type="text"
-              id="parentName"
-              placeholder="Enter parent's full name"
+              placeholder="Enter full name"
               required
             >
           </div>
 
           <div class="form-group">
-            <label for="parentUsername">Username</label>
+            <label for="accountUsername">Username</label>
             <input
+              id="accountUsername"
               type="text"
-              id="parentUsername"
               placeholder="Choose a username"
-              required
               autocomplete="off"
+              required
             >
           </div>
 
           <div class="form-group">
-            <label for="parentPassword">Password</label>
+            <label for="accountPassword">Password</label>
             <input
+              id="accountPassword"
               type="password"
-              id="parentPassword"
-              placeholder="At least 6 characters"
-              minlength="6"
-              required
+              placeholder="At least 8 characters"
+              minlength="8"
               autocomplete="new-password"
-            >
-          </div>
-
-          <div class="form-group">
-            <label for="parentStudentId">Child's Student ID</label>
-            <input
-              type="text"
-              id="parentStudentId"
-              placeholder="Example: STU001"
               required
             >
           </div>
 
-          <button type="submit" class="primary-button" id="createParentButton">
-            Create Parent Account
+          <div class="form-group" id="studentIdGroup">
+            <label for="accountStudentId">Student ID</label>
+            <input
+              id="accountStudentId"
+              type="text"
+              placeholder="Enter an existing Student ID"
+            >
+            <small>
+              Required for Parent and Student accounts.
+              Add the student record first.
+            </small>
+          </div>
+
+          <button
+            type="submit"
+            class="primary-button"
+            id="createAccountButton"
+          >
+            Create Account
           </button>
 
-          <p id="parentMessage" role="status" aria-live="polite"></p>
+          <p id="accountMessage" role="status" aria-live="polite"></p>
         </form>
       </section>
 
+      <!-- Recent transactions -->
       <section class="content-card">
         <h2>Recent Transactions</h2>
         <p id="transactionMessage" class="empty-state" role="status">
@@ -146,7 +169,6 @@
   </div>
 
   <script>
-    // Deployed EduWallet backend
     const API = "https://eduwallet-c8hd.onrender.com/api";
 
     const token = sessionStorage.getItem("token");
@@ -168,6 +190,7 @@
       loadDashboard();
     }
 
+    // Logout
     document.getElementById("logoutButton").addEventListener("click", () => {
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("user");
@@ -176,6 +199,7 @@
       window.location.replace("login.html");
     });
 
+    // Fetch data from the backend
     async function getData(endpoint) {
       const response = await fetch(API + endpoint, {
         headers: {
@@ -193,7 +217,8 @@
 
       if (!response.ok || result.success === false) {
         throw new Error(
-          result.message || "Unable to load dashboard data. Status: " + response.status
+          result.message ||
+          "Unable to load data. Status: " + response.status
         );
       }
 
@@ -236,6 +261,7 @@
         : String(value);
     }
 
+    // Load dashboard statistics and transactions
     async function loadDashboard() {
       pageMessage.textContent = "";
 
@@ -251,13 +277,17 @@
           "students", "data", "results"
         ]);
 
-        document.getElementById("studentCount").textContent = students.length;
+        document.getElementById("studentCount").textContent =
+          students.length;
 
         document.getElementById("cardCount").textContent =
           students.filter(hasActiveCard).length;
 
         document.getElementById("walletTotal").textContent = money(
-          students.reduce((total, student) => total + getBalance(student), 0)
+          students.reduce(
+            (total, student) => total + getBalance(student),
+            0
+          )
         );
       } else {
         document.getElementById("studentCount").textContent = "—";
@@ -292,60 +322,101 @@
       pageMessage.textContent = errors.join(" ");
     }
 
-    // Create a parent account through the Admin-only backend route.
-    document.getElementById("parentForm").addEventListener("submit", async event => {
-      event.preventDefault();
+    // Show or hide Student ID depending on account type
+    const accountRole = document.getElementById("accountRole");
+    const studentIdGroup = document.getElementById("studentIdGroup");
+    const accountStudentId = document.getElementById("accountStudentId");
 
-      const message = document.getElementById("parentMessage");
-      const button = document.getElementById("createParentButton");
+    function updateStudentIdField() {
+      const needsStudentId =
+        accountRole.value === "Parent" ||
+        accountRole.value === "Student";
 
-      const name = document.getElementById("parentName").value.trim();
-      const username = document.getElementById("parentUsername").value.trim();
-      const password = document.getElementById("parentPassword").value;
-      const studentId = document.getElementById("parentStudentId").value.trim();
+      studentIdGroup.hidden = !needsStudentId;
+      accountStudentId.required = needsStudentId;
 
-      message.textContent = "";
-      button.disabled = true;
-      button.textContent = "Creating account...";
+      if (!needsStudentId) {
+        accountStudentId.value = "";
+      }
+    }
 
-      try {
-        const response = await fetch(API + "/parents", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + token
-          },
-          body: JSON.stringify({ name, username, password, studentId })
-        });
+    accountRole.addEventListener("change", updateStudentIdField);
+    updateStudentIdField();
 
-        let result;
+    // Create account — backend restricts this endpoint to Admin
+    document.getElementById("accountForm").addEventListener(
+      "submit",
+      async (event) => {
+        event.preventDefault();
+
+        const message = document.getElementById("accountMessage");
+        const button = document.getElementById("createAccountButton");
+
+        const name =
+          document.getElementById("accountName").value.trim();
+
+        const username =
+          document.getElementById("accountUsername").value.trim();
+
+        const password =
+          document.getElementById("accountPassword").value;
+
+        const role = accountRole.value;
+
+        const studentId = accountStudentId.value.trim();
+
+        message.textContent = "";
+        button.disabled = true;
+        button.textContent = "Creating account...";
 
         try {
-          result = await response.json();
+          const response = await fetch(API + "/accounts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + token
+            },
+            body: JSON.stringify({
+              name,
+              username,
+              password,
+              role,
+              studentId: studentId || undefined
+            })
+          });
+
+          let result;
+
+          try {
+            result = await response.json();
+          } catch (error) {
+            throw new Error("The server returned an invalid response.");
+          }
+
+          if (!response.ok || !result.success) {
+            throw new Error(
+              result.message || "Could not create account."
+            );
+          }
+
+          message.textContent =
+            result.message + " Username: " + result.user.username;
+
+          document.getElementById("accountForm").reset();
+          updateStudentIdField();
         } catch (error) {
-          throw new Error("The server returned an invalid response.");
+          console.error("Create account error:", error);
+
+          message.textContent =
+            error.message || "Could not connect to the server.";
+        } finally {
+          button.disabled = false;
+          button.textContent = "Create Account";
         }
-
-        if (!response.ok || result.success === false) {
-          throw new Error(result.message || "Could not create parent account.");
-        }
-
-        message.textContent =
-          "Parent account created successfully. Username: " +
-          (result.parent?.username || username) +
-          ". Linked Student ID: " +
-          (result.parent?.studentId || studentId) + ".";
-
-        document.getElementById("parentForm").reset();
-      } catch (error) {
-        message.textContent =
-          error.message || "Could not connect to the server.";
-      } finally {
-        button.disabled = false;
-        button.textContent = "Create Parent Account";
       }
-    });
+    );
 
+    // Display recent transactions
     function renderTransactions(transactions) {
       const container = document.getElementById("recentTransactions");
       const message = document.getElementById("transactionMessage");
@@ -365,11 +436,12 @@
       const thead = document.createElement("thead");
       const headerRow = document.createElement("tr");
 
-      ["Date", "Student", "Type", "Amount", "Method", "Status"].forEach(label => {
-        const th = document.createElement("th");
-        th.textContent = label;
-        headerRow.appendChild(th);
-      });
+      ["Date", "Student", "Type", "Amount", "Method", "Status"]
+        .forEach(label => {
+          const th = document.createElement("th");
+          th.textContent = label;
+          headerRow.appendChild(th);
+        });
 
       thead.appendChild(headerRow);
       table.appendChild(thead);
@@ -385,13 +457,17 @@
         const row = document.createElement("tr");
 
         const rawDate = transaction.createdAt || transaction.date;
-        const date = rawDate && !Number.isNaN(new Date(rawDate).getTime())
-          ? new Date(rawDate).toLocaleDateString("en-IN")
-          : "—";
+
+        const date =
+          rawDate && !Number.isNaN(new Date(rawDate).getTime())
+            ? new Date(rawDate).toLocaleDateString("en-IN")
+            : "—";
 
         const amount = Number(transaction.amount || 0);
-        const sign = transaction.type === "Credit" ? "+" :
-                     transaction.type === "Debit" ? "−" : "";
+
+        const sign =
+          transaction.type === "Credit" ? "+" :
+          transaction.type === "Debit" ? "−" : "";
 
         const values = [
           date,
