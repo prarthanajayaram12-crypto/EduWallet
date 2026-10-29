@@ -77,7 +77,6 @@
         </div>
       </section>
 
-      <!-- Create Parent Account -->
       <section class="content-card">
         <h2>Create Parent Account</h2>
         <p>Create login credentials and link a parent to their child.</p>
@@ -136,11 +135,9 @@
 
       <section class="content-card">
         <h2>Recent Transactions</h2>
-
         <p id="transactionMessage" class="empty-state" role="status">
           Loading transactions...
         </p>
-
         <div id="recentTransactions"></div>
       </section>
 
@@ -149,9 +146,10 @@
   </div>
 
   <script>
-    const API = "https://eduwallet-c8hd.onrender.com";
-    const token = sessionStorage.getItem("token");
+    // Deployed EduWallet backend
+    const API = "https://eduwallet-c8hd.onrender.com/api";
 
+    const token = sessionStorage.getItem("token");
     let user = null;
 
     try {
@@ -173,25 +171,17 @@
     document.getElementById("logoutButton").addEventListener("click", () => {
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("user");
+      sessionStorage.removeItem("eduwalletToken");
+      sessionStorage.removeItem("eduwalletUser");
       window.location.replace("login.html");
     });
 
-   async function getData(endpoint) {
-  const response = await fetch(
-    "https://eduwallet-c8hd.onrender.com/api/" + endpoint,
-    {
-      headers: {
-        Authorization: "Bearer " + token
-      }
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error("Failed to load data: " + response.status);
-  }
-
-  return await response.json();
-}
+    async function getData(endpoint) {
+      const response = await fetch(API + endpoint, {
+        headers: {
+          Authorization: "Bearer " + token
+        }
+      });
 
       let result;
 
@@ -202,7 +192,9 @@
       }
 
       if (!response.ok || result.success === false) {
-        throw new Error(result.message || "Unable to load dashboard data.");
+        throw new Error(
+          result.message || "Unable to load dashboard data. Status: " + response.status
+        );
       }
 
       return result;
@@ -260,6 +252,7 @@
         ]);
 
         document.getElementById("studentCount").textContent = students.length;
+
         document.getElementById("cardCount").textContent =
           students.filter(hasActiveCard).length;
 
@@ -270,8 +263,9 @@
         document.getElementById("studentCount").textContent = "—";
         document.getElementById("cardCount").textContent = "—";
         document.getElementById("walletTotal").textContent = "—";
+
         errors.push("Student statistics could not be loaded.");
-        console.error(results[0].reason);
+        console.error("Students request failed:", results[0].reason);
       }
 
       if (results[1].status === "fulfilled") {
@@ -285,11 +279,14 @@
         renderTransactions(transactions);
       } else {
         document.getElementById("transactionCount").textContent = "—";
+
         document.getElementById("transactionMessage").textContent =
           "Transactions could not be loaded.";
+
         document.getElementById("recentTransactions").replaceChildren();
+
         errors.push("Transaction history could not be loaded.");
-        console.error(results[1].reason);
+        console.error("Transactions request failed:", results[1].reason);
       }
 
       pageMessage.textContent = errors.join(" ");
@@ -321,20 +318,28 @@
           body: JSON.stringify({ name, username, password, studentId })
         });
 
-        const result = await response.json();
+        let result;
 
-        if (!response.ok || !result.success) {
+        try {
+          result = await response.json();
+        } catch (error) {
+          throw new Error("The server returned an invalid response.");
+        }
+
+        if (!response.ok || result.success === false) {
           throw new Error(result.message || "Could not create parent account.");
         }
 
         message.textContent =
           "Parent account created successfully. Username: " +
-          result.parent.username +
-          ". Linked Student ID: " + result.parent.studentId + ".";
+          (result.parent?.username || username) +
+          ". Linked Student ID: " +
+          (result.parent?.studentId || studentId) + ".";
 
         document.getElementById("parentForm").reset();
       } catch (error) {
-        message.textContent = error.message || "Could not connect to the server.";
+        message.textContent =
+          error.message || "Could not connect to the server.";
       } finally {
         button.disabled = false;
         button.textContent = "Create Parent Account";
@@ -394,7 +399,7 @@
             transaction.student?.name ||
             transaction.studentId ||
             "—",
-          transaction.type,
+          transaction.type || "—",
           sign + money(amount),
           transaction.paymentMethod || "—",
           transaction.status || "—"
